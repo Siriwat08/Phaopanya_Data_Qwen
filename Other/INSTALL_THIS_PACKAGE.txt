@@ -1,0 +1,50 @@
+Phaopanya Master v5.5.6 — PACKAGE BASELINE
+==========================================
+อัปเดตเอกสารให้ตรงโค้ด: 2026-09-03
+(ไม่ขึ้นเวอร์ชันใหม่ — ซิงค์เอกสารกับโค้ดที่มีอยู่)
+
+รวมในโค้ดจริง
+- PATCH-4  CN_ZIP_OK / CN_ZIP_OK_EN
+- PATCH-5  uiClearGeoColumnsOnly (ล้าง U–AA)
+- PATCH-6  Upgrade-only สำหรับ Reversegeocode (Y)
+            Y = EN สะอาด → แช่แข็งห้ามทับ
+            Y = ไทย/Plus Code/ขยะ + มี EN ใน SOURCE → อัปเกรด
+            Z เติมเฉพาะช่องว่าง (ยกเว้นตอนอัปเกรด Y เป็นคู่)
+- 06_GoogleMapsService.gs (MAPS_* namespace, เรียก mapsInstallMenu_() จาก onOpen)
+
+ไฟล์ .gs ที่ต้องวางใน Apps Script (10 ไฟล์)
+  00_CleanService.gs
+  00_Config.gs
+  01_MasterService.gs
+  02_WorkloadService.gs
+  03_Menu.gs
+  04_GeoService.gs
+  05_SetupService.gs
+  06_GoogleMapsService.gs
+  99_SelfTest.gs
+  Service_SCG.gs
+
+ติดตั้ง
+  1) Backup สคริปต์เดิม
+  2) วางทับ 10 ไฟล์ด้านบน
+  3) Reload ชีต → ตรวจเมนู
+  4) Self-Test
+  5) (ถ้าต้องการกู้ Y ที่เคยถูกทับ) กด 3b หนึ่งรอบ
+  6) ดู alert: Y แช่แข็ง / Y อัปเกรด
+
+เมนูสำคัญ (จาก 03_Menu.gs)
+  0) ตรวจสอบโครงสร้าง
+  1) สะสมฐาน MASTER
+  3) เติม 7 คอลัมน์ราชการ (Geo)
+  3b) เติม 7 คอลัมน์ราชการ (English)
+  1+3) สะสม MASTER + เติม Geo
+  2) รันแมชต์งานวันนี้
+  🧹 ล้างเฉพาะ 7 คอลัมน์ราชการ (U-AA)
+  🧪 Self-Test
+
+Workflow ข้อมูลเก่าเดือน 2–7 (TH)
+  รัน TH ก่อนเก็บอันที่ใช้ได้ → ค่อยทำ EN ทีละชุด
+  PATCH-6 จะไม่ทับ EN ที่ดีด้วย TH จาก SOURCE
+
+เอกสารในแพ็กเกจต้องตรงกับโค้ดชุดนี้
+  README / CHANGELOG / CHECKLIST / DEPLOYMENT / SHEETS_REFERENCE / Blueprint
