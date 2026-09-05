@@ -552,12 +552,15 @@ function geoMatch_(geoText) {
   // ชั้น 8: Levenshtein ตำบล (≤ 1 edit, สำหรับคำ 5+ ตัวอักษร) — แก้ typo 1 ตัวอักษร เช่น "สมุทธปราการ" → "สมุทรปราการ"
   if (nt && np && idx.fuzzyByProv[np]) {
     let f3 = levenshteinBest_(nt, idx.fuzzyByProv[np], 'tn', 1);
-    if (f3) return { entry: f3, layer: 'TAMBON_LEV' };
+    // [v5.5.7 AUDIT FIX-2] เพิ่ม postalOk_ — ให้ Thai path ใช้นโยบายเดียวกับ EN path (v5.5.3)
+    //   กัน false positive คนละพื้นที่ที่ห่าง 1 ตัวอักษร เมื่อข้อความมีรหัสไปรษณีย์ขัดแย้ง
+    if (f3 && postalOk_(f3, e.postal)) return { entry: f3, layer: 'TAMBON_LEV' };
   }
   // ชั้น 9: Levenshtein อำเภอ (≤ 1 edit, สำหรับคำ 5+ ตัวอักษร)
   if (na && np && idx.fuzzyByProv[np]) {
     let f4 = levenshteinBest_(na, idx.fuzzyByProv[np], 'an', 1);
-    if (f4) return { entry: f4, layer: 'AMPHOE_LEV' };
+    // [v5.5.7 AUDIT FIX-2] เพิ่ม postalOk_ ครอบชั้น 9 เช่นกัน
+    if (f4 && postalOk_(f4, e.postal)) return { entry: f4, layer: 'AMPHOE_LEV' };
   }
   return null;
 }

@@ -516,7 +516,10 @@ function testPostalCoverage_() {
 
 /**
  * Test 6: LatLong range
- * ตรวจ MASTER.LatLong_Actual อยู่ในช่วงไทย (lat 5-21, lng 97-106)
+ * [v5.5.7 AUDIT FIX-3] ตรวจ MASTER.LAT/LNG (คอลัมน์ที่มีจริงบน MASTER_PLACE)
+ *   เดิม: หา column "LatLong_Actual" บน MASTER — คอลัมน์นั้นอยู่บน "ตารางงานประจำวัน" ไม่ใช่ MASTER
+ *   ผลเดิม: test คืน WARN "ไม่พบ column" เสมอ → ไม่เคยตรวจอะไรเลย (dead test)
+ *   หลักฐาน: ชีต การตั้งค่า ในแพ็กเกจ (SelfTest run จริง) บวก unit test บน mock
  */
 function testLatLongRange_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -524,39 +527,39 @@ function testLatLongRange_() {
   if (!sh || sh.getLastRow() < 2) {
     return { status: 'WARN', message: 'MASTER ว่าง' };
   }
-  // หา column "LatLong_Actual" หรือใช้ heuristic
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) {
     return String(h || '').trim();
   });
-  const latLngCol = headers.indexOf('LatLong_Actual');
-  if (latLngCol < 0) {
-    return { status: 'WARN', message: 'ไม่พบ column LatLong_Actual' };
+  const latCol = headers.indexOf('LAT');
+  const lngCol = headers.indexOf('LNG');
+  if (latCol < 0 || lngCol < 0) {
+    return { status: 'WARN', message: 'ไม่พบ column LAT/LNG บน MASTER' };
   }
   const lastRow = sh.getLastRow();
-  const data = sh.getRange(2, latLngCol + 1, lastRow - 1, 1).getValues();
+  const data = sh.getRange(2, latCol + 1, lastRow - 1, 2).getValues();
 
   let total = 0, oor = 0, examples = [];
   for (let i = 0; i < data.length; i++) {
-    const v = String(data[i][0] || '').trim();
-    if (!v) continue;
+    const latV = data[i][0], lngV = data[i][1];
+    const latBlank = (latV === '' || latV === null || latV === undefined);
+    const lngBlank = (lngV === '' || lngV === null || lngV === undefined);
+    if (latBlank && lngBlank) continue;
     total++;
-    // parse "lat,lng" หรือ "lat, lng"
-    const m = v.match(/^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/);
-    if (!m) {
+    const lat = parseFloat(latV);
+    const lng = parseFloat(lngV);
+    if (isNaN(lat) || isNaN(lng)) {
       oor++;
-      if (examples.length < 3) examples.push('unparseable: ' + v);
+      if (examples.length < 3) examples.push('unparseable: lat=' + latV + ', lng=' + lngV + ' (row ' + (i + 2) + ')');
       continue;
     }
-    const lat = parseFloat(m[1]);
-    const lng = parseFloat(m[2]);
     if (lat < 5 || lat > 21 || lng < 97 || lng > 106) {
       oor++;
-      if (examples.length < 3) examples.push(v + ' (lat=' + lat + ', lng=' + lng + ')');
+      if (examples.length < 3) examples.push(lat + ', ' + lng + ' (row ' + (i + 2) + ')');
     }
   }
 
   if (total === 0) {
-    return { status: 'WARN', message: 'ไม่มี LatLong_Actual ที่ไม่ว่าง' };
+    return { status: 'WARN', message: 'ไม่มี LAT/LNG ที่ไม่ว่างบน MASTER' };
   }
   const oorPct = (oor / total) * 100;
   if (oorPct > SELFTEST_LATLNG_OOR_PCT) {

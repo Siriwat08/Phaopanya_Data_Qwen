@@ -556,10 +556,13 @@ function upsertMasterIdxRows_(rows) {
       r[3] === null || r[3] === undefined ? '' : r[3],
       r[4] === null || r[4] === undefined ? '' : r[4]
     ];
-    if (byMdId[mdId]) {
+    // [v5.5.7 AUDIT FIX-4] เดิม: if (byMdId[mdId]) — sentinel ที่จองแถวใหม่คือ -1 ซึ่งเป็น truthy
+    //   → MD_ID ซ้ำใน batch เดียว (เช่น rebuild จาก MASTER ที่ MD_ID เสีย) จะเรียก getRange(-1,...) แล้ว crash
+    //   แก้: เช็ค !== undefined → แถวที่อยู่ใน sheet จริง (เลขแถว >= 2) อัปเดต / sentinel -1 ข้าม (กันซ้ำใน batch)
+    if (byMdId[mdId] !== undefined && byMdId[mdId] > 0) {
       sh.getRange(byMdId[mdId], 1, 1, MASTER_IDX_SHEET.TOTAL_COLS).setValues([out]);
       updated++;
-    } else {
+    } else if (byMdId[mdId] === undefined) {
       toAppend.push(out);
       // จอง mdId กันซ้ำใน batch เดียวกัน
       byMdId[mdId] = -1;
