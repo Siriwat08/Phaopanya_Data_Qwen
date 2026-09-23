@@ -1,0 +1,131 @@
+--- audit_work/fixed/Code/04_GeoService.gs	2026-09-04 02:13:32.000000000 +0000
++++ audit_work/v558/Code/04_GeoService.gs	2026-09-07 05:48:39.432518368 +0000
+@@ -2,6 +2,31 @@
+  * GeoService v5 — แยกพิกัดทางราชการ (รหัสไปรษณีย์ / จ. / อ.-ค. / ต.-ข.) จาก "ชื่อที่อยู่จาก_LatLong"
+  * โดยเทียบกับพจนานุกรม SYS_TH_GEO (ฐานข้อมูลการปกครองไทย + รหัสไปรษณีย์)
+  *
++ * [v5.5.8 MINIMAL SAFE CHANGE — 3 จุด จากการตรวจข้ออ้างของ AI ภายนอก 6 ข้อ]
++ *   หลักการ: แกเฉพาะบั๊กจริงที่ยืนยันด้วยโค้ด+ข้อมูลจริง · ไม่แตะ CHECK_NOTE policy
++ *   · ไม่เพิ่มกฎ 10xxx (รหัส→จังหวัด) · คงฟังก์ชัน/ลายเซ็นเดิมครบ · ผลต่อแถวที่เติมแล้ว = 0
++ *   FIX-A [geoExtractEn_ scanning] 1-hit rule ไม่ dedup ชื่อ: pool เป็นระดับแถวตำบล
++ *     อำเภอ 1 อำเภอ = หลายแถว → ชื่ออำเภอถูกนับซ้ำตามจำนวนแขวง (เช่น Wang Thonglang
++ *     = 4 แถว) → length แทบไม่มีวัน = 1 → scanning fallback ตายเกือบทั้งหมด
++ *     ข้อมูลจริง test4: แถว EN ไร้ label อำเภอ 184 แถว (เช่น "Khwaeng Lumphini,
++ *     Pathum Wan, Krung Thep Maha Nakhon 10330" — Google ไม่ใส่คำ Khet) พึ่งทางนี้ล้วน
++ *     แก: นับ "ชื่อไม่ซ้ำ" ด้วย object key (ตรงเจตนาเดิมของ 1-hit และตรงแบบฝั่งไทย
++ *     scanPool_ ที่ dedup โดย Object.keys อยู่แล้ว — EN path ลืมทำ)
++ *   FIX-B [geoExtractEn_ regex] รองรับรูป "Bang Kapi District" (ชื่อนำ คำ District ตาม)
++ *     เจอจริงในข้อมูล 6 แถว (MD-9759/3520/11084/11112/11140/11181 — ที่มา plus-code)
++ *     กันจับผิด 3 ชั้น: ใช้เฉพาะ suffix "District" (ไม่เอา Khet/Amphoe เพราะในข้อมูล
++ *     "Thanon Pichai Khet"/"Khlong Nakhon Nuang Khet" เป็นชื่อจริง) + ชื่อต้องอยู่หลัง
++ *     comma/ต้นประโยค + ห้ามมี label word หรือตัวเลขข้างใน (กัน "Nueang Khet 14")
++ *   FIX-C [findRowByTambonInTextEn_] เพิ่มระดับ "เต็ม 1 ตัวอักษร แบบ unique" ระหว่าง
++ *     exact กับ substring: phlabphla≈phlapphla · thungsukla≈thungsukhla ·
++ *     arunamarin≈arunammarin (เจอจริง 248 แถวใน test4 — ส่วนใหญ่กู้โดยชั้น TAMBON_LEV_EN
++ *     แล้ว เหลือที่ชั้นนี้กู้ได้อีก 9 แถว ที่ตก AMPHOE_FUZZY เติมแขวงแบบเดา)
++ *     เงื่อนไข: needle ≥5 ตัวอักษร + ต้องมี candidate เดียวห่าง ≤1 ใน pool (unique)
++ *     ไม่ใส่ postalOk_ โดยตั้งใจ: candidates ถูก pin ขอบเขตแล้วโดยชั้นเรียก (รหัส+อำเภอ
++ *     หรือ อำเภอ+จังหวัด) ผิดก็แค่ตำบลในอำเภอเดียว + กรณี Google ส่งรหัสไม่มีอยู่จริง
++ *     (เช่น 10312 วังทองหลาง — พิสูจน์แล้วในรายงาน) หลักฐานชื่อตำบลในข้อความน่าเชื่อ
++ *     กว่ารหัส (หลักการเดียวกับ PATCH-4 CN_ZIP_OK)
++ *
+  * [v5.5.6 PATCH-6] นโยบาย Upgrade-only สำหรับ Y (Reversegeocode) แทน "latest snapshot"
+  *   ปัญหา: ปุ่ม 3/3b กับแถวที่เติมแล้ว (มี GEO_LAYER) — U/V/W/X/AA แช่แข็ง แต่ Y/Z
+  *   ถูกคัดลอกจาก SOURCE แถวล่าสุดทุกครั้งที่รัน → ที่อยู่ EN สะอาดโดนทับด้วยข้อความ
+@@ -633,7 +658,14 @@
+   return null;
+ }
+ 
+-/** [v5.2 ENGLISH] findRowByTambonInTextEn_ — หาแถว EN ที่ tambon_en ตรงกับ text (substring case-insensitive) */
++/** [v5.2 ENGLISH] findRowByTambonInTextEn_ — หาแถว EN ที่ tambon_en ตรงกับ text (substring case-insensitive)
++ *  [v5.5.8 FIX-C] เพิ่มระดับกลางระหว่าง exact กับ substring: "ห่าง 1 ตัวอักษรแบบ unique"
++ *  กรณีเป้าหมาย: ชื่อตำบลในข้อความต่างจาก dict 1 ตัวอักษร (phlabphla/phlapphla,
++ *  thungsukla/thungsukhla, arunamarin/arunammarin) ซึ่ง exact พลาด → เดิมตกไป
++ *  AMPHOE_FUZZY ที่เติมแขวงแรกของเขตแบบเดา ตอนนี้หยิบแถวตำบลนั้นตรง ๆ ได้
++ *  เงื่อนไขความปลอดภัย: needle ยาว ≥5 · ผลการเทียบต้อง unique (มีแถวเดียวห่าง ≤1
++ *  ใน candidates) — candidates ถูก pin ขอบเขตโดยชั้นเรียกอยู่แล้ว (รหัส+อำเภอ หรือ
++ *  อำเภอ+จังหวัด) จึงผิดได้แค่ตำบลในอำเภอเดียวกันเท่านั้น */
+ function findRowByTambonInTextEn_(candidates, text, extractedTambonNorm) {
+   if (!candidates || !candidates.length) return null;
+   if (extractedTambonNorm) {
+@@ -641,6 +673,22 @@
+       let tn = normAreaEn_(String(candidates[i][GEO_COL.SUBDISTRICT_CLEAN_EN] || ''));
+       if (tn === extractedTambonNorm) return candidates[i];
+     }
++    // [v5.5.8 FIX-C] exact ไม่เจอ → ลอง unique Levenshtein ≤ 1 (needle ≥ 5 ตัวอักษร)
++    //   นับ unique "ชื่อ" ไม่ใช่แถว: แถว FULL_AREA กับแถว CHECK_NOTE เดิมของตำบลเดียวกัน
++    //   อยู่ใน pool พร้อมกัน (เช่น Phlapphla ×2) ถ้านับแถวจะไม่มีวัน unique — dedup ชื่อก่อน
++    //   แล้วหยิบแถวแรกของชื่อนั้น (ตามลำดับแถว dict = แถว FULL_AREA ที่แทรกไว้บนกว่า)
++    if (extractedTambonNorm.length >= 5) {
++      let seenNames = {};
++      let bestRow = null, nameCount = 0;
++      for (var k = 0; k < candidates.length; k++) {
++        let tnL = normAreaEn_(String(candidates[k][GEO_COL.SUBDISTRICT_CLEAN_EN] || ''));
++        if (!tnL || Math.abs(tnL.length - extractedTambonNorm.length) > 1) continue;
++        if (levenshtein_(extractedTambonNorm, tnL) <= 1 && !seenNames[tnL]) {
++          seenNames[tnL] = 1; nameCount++; bestRow = candidates[k];
++        }
++      }
++      if (nameCount === 1) return bestRow;
++    }
+     return null;
+   }
+   if (!text) return null;
+@@ -676,6 +724,21 @@
+   // Amphoe: "Khet X" / "Amphoe X" / "District X"
+   let am = t.match(/\b(?:Khet|Amphoe|District)\s+([A-Za-z][A-Za-z\s]+?)(?=,|\s+(?:Province)|\s+\d{5}|$)/i);
+   if (am) out.amphoe = normAreaEn_(am[1]);
++  // [v5.5.8 FIX-B] รูปสลับ "X District" (ชื่อนำหน้า — เจอในข้อความ plus-code เช่น
++  //   "Hua Mak, Bang Kapi District, Krung Thep Maha Nakhon 10250")
++  //   ทำงานเฉพาะเมื่อ pattern หลัก (label นำหน้า) ไม่เจอ — ไม่แย่งชัยชนะกับตัวเดิม
++  if (!am) {
++    let am2 = t.match(/(?:^|,\s*)([A-Za-z][A-Za-z]*(?:\s+[A-Za-z]+){0,2})\s+District\b/);
++    if (am2) {
++      let cand = am2[1].trim();
++      let candLower = cand.toLowerCase();
++      let hasLabelWord = /^(khwaeng|tambon|khet|amphoe|district|province|subdistrict|sub-district)(\s|$)/.test(candLower);
++      // กันเคสพบจริงในข้อมูล: "Nueang Khet 14" (เลขที่บ้าน) / ชื่อที่มี label ข้างใน
++      if (cand && !hasLabelWord && !/\d/.test(cand) && candLower !== 'thailand') {
++        out.amphoe = normAreaEn_(cand);
++      }
++    }
++  }
+ 
+   // Province: "Province X" หรือ Bangkok (default)
+   let pm = t.match(/\bProvince\s+([A-Za-z][A-Za-z\s]+?)(?=,|\s+\d{5}|$)/i);
+@@ -717,22 +780,28 @@
+       let poolEn = idx.byProvince_EN[out.province] || [];
+       let tLowerNoSpace = t.toLowerCase().replace(/\s+/g, '');
+       // [v5.3 PERF] ใช้ 1-hit rule เหมือน Thai path — bug #4 fix
++      // [v5.5.8 FIX-A] dedup ชื่อก่อนนับ 1-hit: เดิมนับจำนวน "แถว" ที่ push (pool เป็นระดับ
++      //   ตำบล — อำเภอเดียวกันอยู่หลายแถว) ทำให้เกือบทุกกรณี length > 1 → กติกาไม่เคยผ่าน
++      //   เปลี่ยนเป็น object key = นับ "ชื่อไม่ซ้ำ" ตามเจตนาเดิมของ 1-hit rule
++      //   (ฝั่งไทย scanPool_ ทำแบบนี้อยู่แล้ว — EN path ลืม)
+       if (!out.amphoe) {
+-        let amphoeHits = [];
++        let amphoeHitSet = {};
+         for (var j = 0; j < poolEn.length; j++) {
+           let an = normAreaEn_(String(poolEn[j][GEO_COL.AMPHOE_NORM_EN] || ''));
+-          if (an && tLowerNoSpace.indexOf(an) >= 0) amphoeHits.push(an);
++          if (an && tLowerNoSpace.indexOf(an) >= 0) amphoeHitSet[an] = 1;
+         }
+-        // 1-hit rule: ถ้าเจอแค่ 1 ตัว → ใช้; ถ้าเจอหลายตัว → ไม่เอา (กัน false positive)
+-        if (amphoeHits.length === 1) out.amphoe = amphoeHits[0];
++        // 1-hit rule: ถ้าชื่อที่ไม่ซ้ำมีแค่ 1 → ใช้; หลายชื่อ → ไม่เอา (กัน false positive)
++        let aKeys = Object.keys(amphoeHitSet);
++        if (aKeys.length === 1) out.amphoe = aKeys[0];
+       }
+       if (!out.tambon) {
+-        let tambonHits = [];
++        let tambonHitSet = {};
+         for (var k = 0; k < poolEn.length; k++) {
+           let tn = normAreaEn_(String(poolEn[k][GEO_COL.TAMBON_NORM_EN] || ''));
+-          if (tn && tLowerNoSpace.indexOf(tn) >= 0) tambonHits.push(tn);
++          if (tn && tLowerNoSpace.indexOf(tn) >= 0) tambonHitSet[tn] = 1;
+         }
+-        if (tambonHits.length === 1) out.tambon = tambonHits[0];
++        let tKeys = Object.keys(tambonHitSet);
++        if (tKeys.length === 1) out.tambon = tKeys[0];
+       }
+     }
+   }
