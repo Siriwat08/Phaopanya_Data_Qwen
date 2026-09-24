@@ -717,22 +717,37 @@ function geoExtractEn_(text) {
       let poolEn = idx.byProvince_EN[out.province] || [];
       let tLowerNoSpace = t.toLowerCase().replace(/\s+/g, '');
       // [v5.3 PERF] ใช้ 1-hit rule เหมือน Thai path — bug #4 fix
+      // [REFACTOR 2026-09-24 รวม FIX-A (TASK46-A) เข้าตัวหลัก]
+      //   เดิม push ชื่อลง amphoeHits/tambonHits "ทุกแถวของ pool" → อำเภอเดียวกัน
+      //   นับซ้ำหลายร้อยครั้ง ทำให้ amphoeHits.length แทบไม่มีทาง = 1 แม้ match ตัวเดียวจริง
+      //   แก้: dedup ด้วย seen-map แล้วนับ "ชื่อที่ไม่ซ้ำกัน" (พฤติกรรมเดียวกับฝั่งไทย
+      //   scanAmphoeIn_/scanTambonIn_ ที่ใช้ Object.keys ของ dict)
       if (!out.amphoe) {
-        let amphoeHits = [];
+        let amphoeSeen = {};
+        let amphoeHit = '', amphoeCount = 0;
         for (var j = 0; j < poolEn.length; j++) {
           let an = normAreaEn_(String(poolEn[j][GEO_COL.AMPHOE_NORM_EN] || ''));
-          if (an && tLowerNoSpace.indexOf(an) >= 0) amphoeHits.push(an);
+          if (an && !amphoeSeen[an] && tLowerNoSpace.indexOf(an) >= 0) {
+            amphoeSeen[an] = true;
+            amphoeHit = an;
+            amphoeCount++;
+          }
         }
-        // 1-hit rule: ถ้าเจอแค่ 1 ตัว → ใช้; ถ้าเจอหลายตัว → ไม่เอา (กัน false positive)
-        if (amphoeHits.length === 1) out.amphoe = amphoeHits[0];
+        // 1-hit rule: ชื่อที่ไม่ซ้ำกันเจอแค่ 1 ตัว → ใช้; หลายตัว → ไม่เอา (กัน false positive)
+        if (amphoeCount === 1) out.amphoe = amphoeHit;
       }
       if (!out.tambon) {
-        let tambonHits = [];
+        let tambonSeen = {};
+        let tambonHit = '', tambonCount = 0;
         for (var k = 0; k < poolEn.length; k++) {
           let tn = normAreaEn_(String(poolEn[k][GEO_COL.TAMBON_NORM_EN] || ''));
-          if (tn && tLowerNoSpace.indexOf(tn) >= 0) tambonHits.push(tn);
+          if (tn && !tambonSeen[tn] && tLowerNoSpace.indexOf(tn) >= 0) {
+            tambonSeen[tn] = true;
+            tambonHit = tn;
+            tambonCount++;
+          }
         }
-        if (tambonHits.length === 1) out.tambon = tambonHits[0];
+        if (tambonCount === 1) out.tambon = tambonHit;
       }
     }
   }

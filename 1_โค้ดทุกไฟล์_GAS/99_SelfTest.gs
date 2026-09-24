@@ -1,8 +1,8 @@
 /**
- * 99_SelfTest.gs — v5.4.8
+ * 99_SelfTest.gs — v5.5.8 (refactor 2026-09-24)
  *
  * Self-Test Infrastructure: กดปุ่มเดียวเช็คทั้งระบบ
- * รัน 8 assertions บน Sheet จริง + แสดงผล PASS/FAIL/WARN
+ * รัน 9 assertions บน Sheet จริง + แสดงผล PASS/FAIL/WARN
  *
  * ใช้สำหรับ:
  *   - ตรวจสอบหลัง Deploy ทุกครั้ง (mandatory)
@@ -14,6 +14,11 @@
  * [v5.4.8 NEW] สร้างใหม่ — เป็น root-cause fix ของ "ทำไมต้องมาแก้บั๊กซ้ำ":
  *   - ไม่มี Runtime Test ในอดีต → Dead Layer อยู่ได้หลายเวอร์ชันโดยไม่มีใครรู้
  *   - Self-Test นี้จับ Dead Layer / Schema mismatch / Cache invalid ได้ตั้งแต่ต้น
+ *
+ * [REFACTOR 2026-09-24 รวมแพตช์ TASK44-2 เข้าตัวหลัก]
+ *   - testPostalCoverage_ เลือกสาย matcher ตามภาษาของ geoText (pickGeoMatcher_)
+ *     แก้ false alarm FAIL 0% จาก "ภาษาผิดสาย" (MASTER 100 แถวแรกเป็น EN แต่รัน geoMatch_ ฝั่งไทย)
+ *   - เพิ่ม testPostalFormat_ (Test 9) — Rahatpraisanee ต้องเป็นเลข 5 หลัก (String-safe)
  */
 
 // ============================================
@@ -33,7 +38,7 @@ const SELFTEST_POSTAL_KEY_PIPE_PCT = 95; // pipe count ต้อง > 95% ขอ
 // ============================================
 
 /**
- * runSelfTest_ — รัน 8 assertions + return summary
+ * runSelfTest_ — รัน 9 assertions + return summary
  * ใช้ได้ทั้งจากเมนู และจาก trigger / time-based
  * @returns {{passed:number, failed:number, warned:number, results:Array, timestamp:string}}
  */
@@ -51,7 +56,8 @@ function runSelfTest_() {
     { name: 'testPostalCoverage_',   fn: testPostalCoverage_   },
     { name: 'testLatLongRange_',     fn: testLatLongRange_     },
     { name: 'testPiiColumns_',       fn: testPiiColumns_       },
-    { name: 'testRbacConfig_',       fn: testRbacConfig_       }
+    { name: 'testRbacConfig_',       fn: testRbacConfig_       },
+    { name: 'testPostalFormat_',     fn: testPostalFormat_     }
   ];
 
   for (let i = 0; i < tests.length; i++) {
@@ -110,7 +116,7 @@ function runSelfTestMenu_() {
       .setWidth(720)
       .setHeight(540)
       .setTitle('🧪 Self-Test — ' + summary.passed + ' PASS / ' + summary.failed + ' FAIL / ' + summary.warned + ' WARN');
-    ui.showModalDialog(output, '🧪 Self-Test v5.5.1');
+    ui.showModalDialog(output, '🧪 Self-Test v5.5.8');
   } else {
     // fallback (เช่น trigger ไม่มี UI)
     let msg = 'Self-Test:\n' + summary.passed + ' PASS / ' + summary.failed + ' FAIL / ' + summary.warned + ' WARN\n\n';
@@ -123,8 +129,21 @@ function runSelfTestMenu_() {
 }
 
 // ============================================
-// 8 ASSERTIONS
+// 9 ASSERTIONS
 // ============================================
+
+/**
+ * [แพตช์ TASK44-2 (A) — รวมเข้าตัวหลัก 2026-09-24]
+ * pickGeoMatcher_ — เลือกสาย matcher ตามภาษาของ geoText
+ *   เดิม testPostalCoverage_ เรียก geoMatch_ ทางเดียว (สายไทย) แต่แถว MASTER
+ *   ส่วนใหญ่เก็บ Reversegeocode เป็น EN → โหวต 0 ทั้งแถว → FAIL 0.0% ทั้งที่ข้อมูลดี
+ */
+function pickGeoMatcher_(geoText) {
+  const isThai = /[\u0e00-\u0e4e]/.test(geoText);
+  if (isThai && typeof geoMatch_ === 'function') return geoMatch_;
+  if (!isThai && typeof geoMatchEn_ === 'function') return geoMatchEn_;
+  return (typeof geoMatch_ === 'function') ? geoMatch_ : geoMatchEn_;
+}
 
 /**
  * Test 1: Key alignment
